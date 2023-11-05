@@ -195,15 +195,15 @@ def extract_nfl_teams():
     teams_reformatted = [team.replace(' ','-') for team in teams]
     return teams_reformatted
 
-def extract_team_total_cap_hit(soup):
-    """Extracts the total cap hit for a team from the given soup object.
+def extract_team_total_cap_hit(soup, total_type):
+    """Extracts the total cap hit or cap space for a team from the given soup object.
 
     Args:
         soup (bs4.BeautifulSoup): A BeautifulSoup object containing the parsed HTML 
-            from where the cap total needs to be extracted.
+            from where the cap total or cap space needs to be extracted.
 
     Returns:
-        int: The total cap hit value for the team as an integer.
+        int: The total cap hit or cap space value for the team as an integer.
 
     Raises:
         AttributeError: If the expected table or row elements are not found in the 
@@ -211,10 +211,10 @@ def extract_team_total_cap_hit(soup):
     """
     header = soup.find('h2', string="2023 Cap Totals")
     table_body = header.find_next('table', {'class': 'datatable rtable captotal'})
-    total_row = table_body.find('td', string='Total').find_parent('tr')
+    total_row = table_body.find('td', string=total_type).find_parent('tr')
     total_value_td = total_row.find_all('td')[-1]
-    total_cap_hit = total_value_td.text.strip()[1:].replace(',', '')
-    return int(total_cap_hit)
+    total = total_value_td.text.strip()[1:].replace(',', '')
+    return int(total)
 
 def verify_team_total(df, soup, team):
     """Verifies that the sum of 'cap_hit' values in the dataframe matches the expected 
@@ -234,12 +234,37 @@ def verify_team_total(df, soup, team):
             equal the expected team total cap hit extracted from 'soup'.
         """
     actual_sum = df['cap_hit'].sum()
-    expected_sum = extract_team_total_cap_hit(soup)
+    expected_sum = extract_team_total_cap_hit(soup, 'Total')
     error_message = (
         f"Expected cap_hit sum for {team} to be {expected_sum}, "
         f"but got {actual_sum}"
     )
     assert actual_sum == expected_sum, error_message
+
+def get_cap_space(soup, team):
+    """Extracts the available cap space for an NFL team from the provided soup object 
+        and returns a dictionary representing a new row with cap space information.
+
+    Args:
+        soup (BeautifulSoup): A BeautifulSoup object containing parsed HTML where 
+            cap space data is located.
+        team (str): The name of the NFL team, which will be used 
+            in the returned dictionary.
+
+    Returns:
+        dict: A dictionary with keys corresponding to the DataFrame columns and 
+            values set to represent the cap space for the team.
+    """
+    cap_space = extract_team_total_cap_hit(soup, 'Cap Space')
+    new_row = {
+        'player_name': 'TEAM CAP SPACE',
+        'position': 'N/A',
+        'cap_hit': cap_space,
+        'roster_status': 'N/A',
+        'team': team
+    }
+    return new_row
+
 
 def fetch_data_for_team(team):
     """Fetches and aggregates player salary cap data for a given NFL team from a website.
@@ -261,30 +286,39 @@ def fetch_data_for_team(team):
                 to create DataFrames for each roster category from the BeautifulSoup object.
             - `verify_team_total(df, soup, team)`: to verify that the total 'cap_hit' 
                 in the DataFrame matches the expected total on the website.
+            - `get_cap_space(soup, team)`: to extract the available cap space per team.
         - An empty DataFrame is not appended to the list of DataFrames to be concatenated.
         - The function prints a message confirming that the total cap hit has been 
             verified for the team.
     """
     team_url = f"{BASE_URL}{team}/cap/"
+    team_formatted = ' '.join([word.capitalize() for word in team.split("-")])
     tables = [
-        ('active', 'active'),
-        ('2023 Reserve/Suspended Cap', 'reserve/suspended'),
-        ('2023 Exempt/Commissioner’s Permission List', 'exempt'),
-        ('2023 Injured Reserve Cap', 'ir'),
-        ('2023 Reserve/PUP', 'pup'),
-        ('2023 Non-Football Injury Cap', 'non-football injury'),
-        ('2023 Practice Squad', 'practice squad'),
-        ('2023 Dead Cap', 'dead cap')
+        ('active', 'Active Player'),
+        ('2023 Reserve/Suspended Cap', 'Reserve/Suspended'),
+        ('2023 Exempt/Commissioner’s Permission List', 'Exempt/Commissioner’s Permission List'),
+        ('2023 Injured Reserve Cap', 'Injured Reserve'),
+        ('2023 Reserve/PUP', 'Reserve/PUP'),
+        ('2023 Non-Football Injury Cap', 'Non-Football Injury'),
+        ('2023 Practice Squad', 'Practice Squad'),
+        ('2023 Dead Cap', 'Dead Cap')
     ]
     soup = generate_soup(team_url)
     dfs = []
     for roster_status_table, roster_status_player in tables:
-        df = create_df_from_soup(roster_status_table, roster_status_player, team, soup)
+        df = create_df_from_soup(roster_status_table, roster_status_player, 
+                                 team_formatted, soup)
         if not df.empty:
             dfs.append(df)
     team_df = pd.concat(dfs, ignore_index=True)
-    verify_team_total(team_df, soup, team)
-    print(f"{team}: Total cap checks out")
+    verify_team_total(team_df, soup, team_formatted)
+    print(f"{team_formatted}: Total cap checks out")
+
+    # Add row in each team's dataframe that corresponds to available cap space
+    cap_space_data = get_cap_space(soup, team_formatted)
+    cap_space_row = pd.DataFrame([cap_space_data])
+    team_df = pd.concat([team_df, cap_space_row], ignore_index=True)
+    
     return team_df
 
 def main():
@@ -292,12 +326,18 @@ def main():
     """
     teams = extract_nfl_teams()
     for team in teams:
-        delete_from_mysql(TABLE_NAME, team)
+        team_formatted = ' '.join([word.capitalize() for word in team.split("-")])
+        delete_from_mysql(TABLE_NAME, team_formatted)
         df = fetch_data_for_team(team)
         insert_into_mysql(df)
         
     truncate_google_sheet(GOOGLE_SHEETS_FILE, GOOGLE_SHEETS_SHEET)
     insert_google_sheet(GOOGLE_SHEETS_FILE, GOOGLE_SHEETS_SHEET, TABLE_NAME)
+
+    # testing
+    # soup = generate_soup("https://www.spotrac.com/nfl/los-angeles-rams/cap/")
+    # extract_team_total_cap_hit(soup, 'Total')
+    # extract_team_total_cap_hit(soup, 'Cap Space')
     
 if __name__ == '__main__':
     main()
