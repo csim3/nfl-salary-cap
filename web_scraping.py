@@ -258,9 +258,9 @@ def get_cap_space(soup, team):
     cap_space = extract_team_total_cap_hit(soup, 'Cap Space')
     new_row = {
         'player_name': 'TEAM CAP SPACE',
-        'position': 'N/A',
+        'position': 'TEAM CAP SPACE',
         'cap_hit': cap_space,
-        'roster_status': 'N/A',
+        'roster_status': 'TEAM CAP SPACE',
         'team': team
     }
     return new_row
