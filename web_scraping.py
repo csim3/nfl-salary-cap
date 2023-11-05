@@ -333,11 +333,6 @@ def main():
         
     truncate_google_sheet(GOOGLE_SHEETS_FILE, GOOGLE_SHEETS_SHEET)
     insert_google_sheet(GOOGLE_SHEETS_FILE, GOOGLE_SHEETS_SHEET, TABLE_NAME)
-
-    # testing
-    # soup = generate_soup("https://www.spotrac.com/nfl/los-angeles-rams/cap/")
-    # extract_team_total_cap_hit(soup, 'Total')
-    # extract_team_total_cap_hit(soup, 'Cap Space')
     
 if __name__ == '__main__':
     main()
